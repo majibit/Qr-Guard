@@ -1,0 +1,2229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>QR-Guard — Генерация и проверка безопасности QR-кодов</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner.umd.min.js"></script>
+    <!-- OpenCV.js подгружается при первой проверке фото (лучше читает снимки с экрана) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-light: #818cf8;
+            --primary-dark: #4f46e5;
+            --accent: #22d3ee;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg: #0f172a;
+            --bg-soft: #1e293b;
+            --card: rgba(30, 41, 59, 0.7);
+            --card-solid: #1e293b;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: rgba(148, 163, 184, 0.15);
+            --glow: 0 0 40px rgba(99, 102, 241, 0.25);
+            --radius: 16px;
+            --radius-sm: 12px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            min-height: 100dvh;
+            line-height: 1.6;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-text-size-adjust: 100%;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+
+        /* Animated background */
+        .bg-effects {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .bg-effects::before {
+            content: '';
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, transparent 70%);
+            top: -200px;
+            left: -100px;
+            animation: float 18s ease-in-out infinite;
+        }
+        .bg-effects::after {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(34, 211, 238, 0.12) 0%, transparent 70%);
+            bottom: -150px;
+            right: -100px;
+            animation: float 22s ease-in-out infinite reverse;
+        }
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(40px, 30px); }
+        }
+
+        /* Header */
+        header {
+            position: relative;
+            padding: 2.2rem 1.5rem 2rem;
+            text-align: center;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(34, 211, 238, 0.08));
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+        }
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 0.4rem;
+        }
+        .logo-icon {
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4); }
+            50% { box-shadow: 0 4px 30px rgba(99, 102, 241, 0.7); }
+        }
+        header h1 {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #fff, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.02em;
+        }
+        header p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-top: 0.25rem;
+        }
+
+        .container {
+            max-width: 720px;
+            margin: 1.75rem auto;
+            padding: 0 1rem 3rem;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.4rem;
+            margin-bottom: 1.5rem;
+            background: var(--card);
+            padding: 0.4rem;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 0.9rem 0.75rem;
+            min-height: 58px;
+            border: none;
+            background: transparent;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.25rem;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+            text-align: center;
+        }
+        .tab-btn .tab-icon {
+            font-size: 1.25rem;
+            line-height: 1;
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .tab-btn .tab-label {
+            font-size: 0.8rem;
+            letter-spacing: 0.01em;
+        }
+        .tab-btn:hover:not(.active) {
+            color: var(--text);
+            background: rgba(255,255,255,0.07);
+            transform: translateY(-2px);
+        }
+        .tab-btn:hover:not(.active) .tab-icon {
+            transform: scale(1.15);
+        }
+        .tab-btn.active {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+            transform: translateY(-2px) scale(1.03);
+        }
+        .tab-btn.active .tab-icon {
+            transform: scale(1.12);
+        }
+        .tab-btn:active {
+            transform: translateY(0) scale(0.96) !important;
+        }
+        .tab-btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255,255,255,0.2) 0%, transparent 55%);
+            opacity: 0;
+            transition: opacity 0.35s;
+            pointer-events: none;
+        }
+        .tab-btn:active::after {
+            opacity: 1;
+            transition: opacity 0s;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 1.75rem;
+            border: 1px solid var(--border);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+            margin-bottom: 1.25rem;
+            animation: fadeUp 0.4s ease-out;
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .card h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #fff;
+        }
+
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.45rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        input[type="text"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 0.9rem 1.1rem;
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 16px; /* prevents iOS zoom on focus */
+            font-family: inherit;
+            background: rgba(15, 23, 42, 0.6);
+            color: var(--text);
+            transition: all 0.25s ease;
+            margin-bottom: 1.1rem;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        input::placeholder,
+        textarea::placeholder {
+            color: #64748b;
+        }
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+            background: rgba(15, 23, 42, 0.85);
+        }
+        select {
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            padding-right: 2.5rem;
+            min-height: 48px;
+        }
+        select option {
+            background: var(--bg-soft);
+            color: var(--text);
+        }
+        textarea { min-height: 110px; resize: vertical; }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.95rem 1.6rem;
+            min-height: 48px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 1rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            user-select: none;
+            touch-action: manipulation;
+        }
+        .btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255,255,255,0.25) 0%, transparent 60%);
+            opacity: 0;
+            transition: opacity 0.4s;
+        }
+        .btn:active::after {
+            opacity: 1;
+            transition: opacity 0s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: 0 4px 18px rgba(99, 102, 241, 0.4);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(99, 102, 241, 0.55);
+        }
+        .btn-primary:active {
+            transform: translateY(0) scale(0.97);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.06);
+            color: var(--text);
+            border: 1.5px solid var(--border);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: rgba(148, 163, 184, 0.3);
+            transform: translateY(-2px);
+        }
+        .btn-secondary:active {
+            transform: translateY(0) scale(0.97);
+        }
+        .btn-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        /* QR area */
+        #qrcode {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 1.5rem 0 0.75rem;
+            padding: 1.5rem;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: var(--radius);
+            border: 1px dashed var(--border);
+            min-height: 200px;
+            transition: all 0.3s ease;
+        }
+        #qrcode.has-code {
+            border-style: solid;
+            border-color: rgba(99, 102, 241, 0.4);
+            box-shadow: var(--glow);
+        }
+        #qrcode img,
+        #qrcode canvas {
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            animation: scaleIn 0.35s ease-out;
+        }
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.85); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        #qr-status {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            min-height: 1.4em;
+        }
+
+        /* Result box */
+        .result-box {
+            margin-top: 1.35rem;
+            padding: 1.35rem;
+            border-radius: var(--radius);
+            border: 1px solid;
+            animation: fadeUp 0.35s ease-out;
+        }
+        .result-safe {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.35);
+        }
+        .result-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border-color: rgba(245, 158, 11, 0.35);
+        }
+        .result-danger {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.35);
+        }
+        .result-box h3 {
+            margin-bottom: 0.6rem;
+            font-size: 1.05rem;
+            font-weight: 700;
+        }
+        .result-safe h3 { color: var(--success); }
+        .result-warning h3 { color: var(--warning); }
+        .result-danger h3 { color: var(--danger); }
+
+        .checks-list {
+            list-style: none;
+            margin-top: 0.6rem;
+        }
+        .checks-list li {
+            padding: 0.4rem 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.55rem;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        .check-ok::before { content: "✅"; }
+        .check-warn::before { content: "⚠️"; }
+        .check-bad::before { content: "❌"; }
+
+        .info-section {
+            background: rgba(99, 102, 241, 0.08);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            margin-top: 1.5rem;
+        }
+        .info-section h3 {
+            color: var(--primary-light);
+            margin-bottom: 0.6rem;
+            font-size: 0.95rem;
+        }
+        .info-section ul {
+            padding-left: 1.15rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+        .info-section li { margin-bottom: 0.3rem; }
+        .info-section p {
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* Tips section */
+        .tips-block {
+            margin-bottom: 1.5rem;
+        }
+        .tips-block h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.6rem;
+            color: var(--primary-light);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .tips-block ul {
+            padding-left: 1.15rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        .tips-block li {
+            margin-bottom: 0.4rem;
+            line-height: 1.5;
+        }
+        .threat-item {
+            display: flex;
+            gap: 0.6rem;
+            padding: 0.65rem 0.85rem;
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            border-radius: 10px;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            transition: all 0.2s ease;
+        }
+        .threat-item:hover {
+            background: rgba(239, 68, 68, 0.12);
+            border-color: rgba(239, 68, 68, 0.3);
+            transform: translateX(4px);
+        }
+        .threat-item strong {
+            color: #fca5a5;
+            white-space: nowrap;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem 1rem 2.5rem;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border);
+        }
+        footer p + p { margin-top: 0.3rem; }
+
+        .hidden { display: none !important; }
+
+        /* CSS-only tabs (work even when JS is blocked, e.g. Telegram) */
+        .tab-radio {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+            width: 0;
+            height: 0;
+        }
+        .tab-panel {
+            display: none;
+        }
+        #t-generate:checked ~ .tabs label[for="t-generate"],
+        #t-check:checked ~ .tabs label[for="t-check"],
+        #t-tips:checked ~ .tabs label[for="t-tips"] {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+            transform: translateY(-2px) scale(1.03);
+        }
+        #t-generate:checked ~ .tabs label[for="t-generate"] .tab-icon,
+        #t-check:checked ~ .tabs label[for="t-check"] .tab-icon,
+        #t-tips:checked ~ .tabs label[for="t-tips"] .tab-icon {
+            transform: scale(1.12);
+        }
+        #t-generate:checked ~ #tab-generate,
+        #t-check:checked ~ #tab-check,
+        #t-tips:checked ~ #tab-tips {
+            display: block;
+            animation: fadeUp 0.4s ease-out;
+        }
+
+        .row {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .row > * { flex: 1; min-width: 160px; }
+
+        /* Loading spinner for check */
+        .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2.5px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Score badge */
+        .score-badge {
+            display: inline-block;
+            padding: 0.2rem 0.65rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-left: 0.4rem;
+        }
+        .score-safe { background: rgba(16,185,129,0.2); color: #34d399; }
+        .score-warn { background: rgba(245,158,11,0.2); color: #fbbf24; }
+        .score-danger { background: rgba(239,68,68,0.2); color: #f87171; }
+
+        /* Upload zone */
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 2rem 1.25rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            background: rgba(15, 23, 42, 0.4);
+            margin-bottom: 1.1rem;
+            position: relative;
+            min-height: 140px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            touch-action: manipulation;
+        }
+        .upload-zone:hover,
+        .upload-zone.dragover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.08);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+        .upload-zone.has-file {
+            border-style: solid;
+            border-color: rgba(99, 102, 241, 0.45);
+        }
+        .upload-zone input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+        .upload-icon {
+            font-size: 2.2rem;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+        .upload-zone p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin: 0.2rem 0;
+        }
+        .upload-zone .upload-hint {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+        .preview-box {
+            display: none;
+            margin: 1rem 0;
+            text-align: center;
+        }
+        .preview-box.visible {
+            display: block;
+            animation: fadeUp 0.3s ease-out;
+        }
+        .preview-box img {
+            max-width: 220px;
+            max-height: 220px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+            border: 1px solid var(--border);
+        }
+        .decoded-box {
+            margin-top: 1rem;
+            padding: 1rem 1.15rem;
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            word-break: break-all;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            display: none;
+        }
+        .decoded-box.visible {
+            display: block;
+            animation: fadeUp 0.3s ease-out;
+        }
+        .decoded-box strong {
+            color: var(--primary-light);
+            display: block;
+            margin-bottom: 0.4rem;
+            font-size: 0.85rem;
+        }
+        .decoded-content {
+            color: var(--text);
+            font-family: ui-monospace, monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            margin-top: 0.8rem;
+            padding: 0.35rem 0.75rem;
+            border: 1px solid rgba(34, 211, 238, 0.24);
+            border-radius: 999px;
+            color: #a5f3fc;
+            background: rgba(34, 211, 238, 0.08);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .field-help {
+            margin: -0.65rem 0 1rem;
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin: 1.4rem 0;
+            color: #64748b;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .divider::before,
+        .divider::after {
+            content: '';
+            height: 1px;
+            flex: 1;
+            background: var(--border);
+        }
+
+        .decoded-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-top: 0.85rem;
+        }
+        .btn-small {
+            padding: 0.55rem 0.85rem;
+            font-size: 0.82rem;
+        }
+
+        .result-note {
+            margin-top: 1rem;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .result-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 0.65rem;
+            margin: 0.9rem 0 0.25rem;
+        }
+        .result-meta div {
+            padding: 0.65rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.35);
+        }
+        .result-meta span {
+            display: block;
+            color: #64748b;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .result-meta strong {
+            display: block;
+            margin-top: 0.15rem;
+            color: var(--text);
+            font-size: 0.84rem;
+            overflow-wrap: anywhere;
+        }
+
+        .privacy-line {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.55rem;
+            margin-top: 0.85rem;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        :focus-visible {
+            outline: 3px solid rgba(34, 211, 238, 0.55);
+            outline-offset: 3px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        @media (max-width: 640px) {
+            header {
+                padding: 1.5rem 1rem 1.35rem;
+            }
+            header h1 { font-size: 1.5rem; }
+            header p { font-size: 0.88rem; }
+            .logo-icon {
+                width: 38px;
+                height: 38px;
+                font-size: 1.25rem;
+            }
+            .container {
+                margin: 1rem auto;
+                padding: 0 0.75rem 2.5rem;
+            }
+            .tabs {
+                flex-direction: row;
+                gap: 0.3rem;
+                padding: 0.3rem;
+                margin-bottom: 1.1rem;
+            }
+            .tab-btn {
+                padding: 0.7rem 0.4rem;
+                min-height: 56px;
+            }
+            .tab-btn .tab-icon { font-size: 1.2rem; }
+            .tab-btn .tab-label {
+                font-size: 0.72rem;
+                line-height: 1.2;
+            }
+            .card {
+                padding: 1.25rem 1rem;
+                margin-bottom: 1rem;
+            }
+            .card h2 {
+                font-size: 1.1rem;
+                margin-bottom: 1rem;
+            }
+            .btn-group {
+                flex-direction: column;
+                gap: 0.6rem;
+            }
+            .btn {
+                width: 100%;
+                min-height: 50px;
+                font-size: 1rem;
+            }
+            .btn-small {
+                min-height: 42px;
+                padding: 0.6rem 0.9rem;
+            }
+            .row {
+                flex-direction: column;
+                gap: 0;
+            }
+            .row > * {
+                min-width: 100%;
+            }
+            #qrcode {
+                padding: 1rem;
+                min-height: 160px;
+            }
+            #qrcode img,
+            #qrcode canvas {
+                max-width: 100%;
+                height: auto !important;
+            }
+            .upload-zone {
+                padding: 1.75rem 1rem;
+            }
+            .upload-icon { font-size: 2rem; }
+            .preview-box img {
+                max-width: min(220px, 85vw);
+            }
+            .result-box {
+                padding: 1.1rem;
+            }
+            .result-meta {
+                grid-template-columns: 1fr;
+            }
+            .info-section {
+                padding: 1rem;
+            }
+            .threat-item {
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+            footer {
+                padding: 1.5rem 1rem 2rem;
+                font-size: 0.75rem;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .tab-btn .tab-label { font-size: 0.65rem; }
+            header h1 { font-size: 1.35rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-effects"></div>
+
+    <header>
+        <div class="logo">
+            <div class="logo-icon">🛡️</div>
+            <h1>QR-Guard</h1>
+        </div>
+        <p>Генерация и проверка безопасности QR-кодов</p>
+        <div class="eyebrow">🔒 Анализ выполняется локально в браузере</div>
+    </header>
+
+    <div class="container">
+        <!-- CSS-only radio tabs: work in Telegram / restricted browsers -->
+        <input class="tab-radio" type="radio" name="main-tab" id="t-generate" checked>
+        <input class="tab-radio" type="radio" name="main-tab" id="t-check">
+        <input class="tab-radio" type="radio" name="main-tab" id="t-tips">
+
+        <div class="tabs" role="tablist">
+            <label class="tab-btn" for="t-generate" role="tab">
+                <span class="tab-icon">📱</span>
+                <span class="tab-label">Создать QR</span>
+            </label>
+            <label class="tab-btn" for="t-check" role="tab">
+                <span class="tab-icon">🔍</span>
+                <span class="tab-label">Проверить</span>
+            </label>
+            <label class="tab-btn" for="t-tips" role="tab">
+                <span class="tab-icon">💡</span>
+                <span class="tab-label">Советы по защите</span>
+            </label>
+        </div>
+
+        <!-- Генерация -->
+        <div id="tab-generate" class="card tab-panel">
+            <h2>📱 Генерация QR-кода</h2>
+            <label for="qr-text">Текст или URL для кодирования</label>
+            <textarea id="qr-text" maxlength="2000" placeholder="https://example.com или любой текст..."></textarea>
+            <p class="field-help">Перед созданием кода проверьте адрес: QR-код скрывает ссылку от обычного взгляда.</p>
+            
+            <label for="qr-size">Размер</label>
+            <select id="qr-size">
+                <option value="128">128 × 128</option>
+                <option value="200" selected>200 × 200</option>
+                <option value="256">256 × 256</option>
+                <option value="300">300 × 300</option>
+            </select>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" id="btn-generate" onclick="generateQR()">
+                    ⚡ Сгенерировать
+                </button>
+                <button class="btn btn-secondary" onclick="clearQR()">
+                    Очистить
+                </button>
+                <button class="btn btn-secondary" id="btn-download" onclick="downloadQR()" disabled>
+                    Скачать PNG
+                </button>
+            </div>
+
+            <div id="qrcode"></div>
+            <p id="qr-status"></p>
+        </div>
+
+        <!-- Проверка -->
+        <div id="tab-check" class="card tab-panel">
+            <h2>🛡️ Проверка QR-кода</h2>
+            <p style="margin-bottom: 1.1rem; color: var(--text-muted); font-size: 0.9rem;">
+                Загрузите изображение QR-кода или вставьте уже расшифрованное содержимое. Сайт ищет признаки риска, но не открывает ссылку и не отправляет данные на сервер.
+            </p>
+
+            <label for="direct-content">Текст или ссылка для быстрой проверки</label>
+            <textarea id="direct-content" maxlength="4000" placeholder="Вставьте адрес или содержимое QR-кода"></textarea>
+            <div class="btn-group">
+                <button class="btn btn-primary" type="button" onclick="analyzeDirect()">Проверить содержимое</button>
+                <button class="btn btn-secondary" type="button" onclick="clearDirect()">Очистить поле</button>
+            </div>
+
+            <div class="divider">или загрузите изображение</div>
+
+            <div class="upload-zone" id="upload-zone">
+                <input type="file" id="qr-file" accept="image/*" onchange="handleFile(event)">
+                <span class="upload-icon">📷</span>
+                <p><strong>Нажмите, чтобы выбрать или сфотографировать QR-код</strong></p>
+                <p class="upload-hint">Камера или галерея · PNG, JPG, HEIC, WEBP · до 10 МБ</p>
+            </div>
+
+            <div class="preview-box" id="preview-box">
+                <img id="preview-img" alt="Предпросмотр QR-кода">
+            </div>
+
+            <div class="btn-group" style="margin-bottom: 0.5rem;">
+                <button class="btn btn-primary" id="btn-check" onclick="scanQR()" disabled>
+                    🔍 Проверить QR-код
+                </button>
+                <button class="btn btn-secondary" onclick="clearCheck()">
+                    Очистить
+                </button>
+            </div>
+
+            <div class="decoded-box" id="decoded-box">
+                <strong>Содержимое QR-кода:</strong>
+                <div class="decoded-content" id="decoded-content"></div>
+                <div class="decoded-actions">
+                    <button class="btn btn-secondary btn-small" type="button" onclick="copyDecoded()">Копировать содержимое</button>
+                </div>
+            </div>
+
+            <div id="check-result" class="hidden" role="status" aria-live="polite"></div>
+
+            <div class="info-section">
+                <h3>Как это работает</h3>
+                <ul>
+                    <li>Изображение обрабатывается прямо в браузере (данные никуда не отправляются)</li>
+                    <li>QR-код декодируется через OpenCV.js, html5-qrcode и jsQR — в том числе фото с экрана</li>
+                    <li>Анализируются: протокол, домен, TLD, сокращатели, Punycode, омоглифы (подмена е/e, о/o…), смешение алфавитов, IP, порт, редиректы, «фишинговые» слова, длина URL</li>
+                    <li>Сайт не переходит по ссылке и не сверяется с онлайн-базами репутации</li>
+                </ul>
+                <p><strong>Важно:</strong> отсутствие найденных признаков не доказывает безопасность. Всегда проверяйте источник QR-кода и домен самостоятельно.</p>
+            </div>
+        </div>
+
+        <!-- Советы -->
+        <div id="tab-tips" class="card tab-panel">
+            <h2>💡 Методы защиты</h2>
+            
+            <div class="tips-block">
+                <h3>👤 Для пользователей</h3>
+                <ul>
+                    <li>Всегда смотрите полный адрес перед переходом и отдельно проверяйте домен</li>
+                    <li>Не сканируйте коды с незнакомых плакатов, парковок и писем</li>
+                    <li>Проверяйте, не наклеена ли чужая наклейка поверх настоящего кода</li>
+                    <li>Не вводите логины, пароли и платёжные данные, пока не убедились, что сайт настоящий</li>
+                    <li>Используйте встроенную камеру или проверенные приложения</li>
+                    <li>Включайте двухфакторную аутентификацию (2FA)</li>
+                </ul>
+            </div>
+
+            <div class="tips-block">
+                <h3>🏢 Для организаций</h3>
+                <ul>
+                    <li>Размещайте рядом с кодом читаемый официальный домен и назначение ссылки</li>
+                    <li>Не используйте публичные сокращатели, скрывающие конечный адрес</li>
+                    <li>Применяйте HTTPS, но не выдавайте его за доказательство подлинности сайта</li>
+                    <li>Регулярно проверяйте напечатанные коды на физическую подмену</li>
+                    <li>Контролируйте перенаправления динамических QR-кодов и доступ к панели управления</li>
+                    <li>Обучение сотрудников правилам безопасного сканирования</li>
+                </ul>
+            </div>
+
+            <div class="tips-block">
+                <h3>⚠️ Основные угрозы</h3>
+                <div class="threat-item"><strong>Quishing</strong> — поддельные страницы входа</div>
+                <div class="threat-item"><strong>Наклейки</strong> — подмена кодов на парковках и в кафе</div>
+                <div class="threat-item"><strong>QRLJacking</strong> — обман при входе через QR-код и захват чужой сессии</div>
+                <div class="threat-item"><strong>Malware</strong> — ссылки на скачивание вредоносного ПО</div>
+                <div class="threat-item"><strong>Платёжные QR</strong> — подмена и кража денег</div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p style="opacity: 0.7;">Сайт создан в образовательных целях. Не является профессиональным средством защиты.</p>
+    </footer>
+
+    <div id="qr-reader-hidden" style="display:none"></div>
+    <script>
+        let qrcodeInstance = null;
+
+        // Ripple effect
+        document.querySelectorAll('.btn, .tab-btn').forEach(btn => {
+            btn.addEventListener('pointerdown', function (e) {
+                const rect = this.getBoundingClientRect();
+                this.style.setProperty('--x', (e.clientX - rect.left) + 'px');
+                this.style.setProperty('--y', (e.clientY - rect.top) + 'px');
+            }, { passive: true });
+        });
+
+        // Tabs work via CSS radio buttons — no JS required (Telegram-safe)
+
+        function generateQR() {
+            const text = document.getElementById('qr-text').value.trim();
+            if (!text) {
+                shake(document.getElementById('qr-text'));
+                return;
+            }
+
+            const size = parseInt(document.getElementById('qr-size').value);
+
+            const container = document.getElementById('qrcode');
+            container.innerHTML = '';
+            container.classList.add('has-code');
+
+            try {
+                qrcodeInstance = new QRCode(container, {
+                    text: text,
+                    width: size,
+                    height: size,
+                    colorDark: "#0f172a",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+                document.getElementById('qr-status').textContent =
+                    'QR-код готов. Проверьте его сканированием перед публикацией.';
+                document.getElementById('btn-download').disabled = false;
+            } catch (error) {
+                container.innerHTML = '';
+                container.classList.remove('has-code');
+                qrcodeInstance = null;
+                document.getElementById('qr-status').textContent =
+                    'Не удалось создать код. Сократите текст и попробуйте снова.';
+                document.getElementById('btn-download').disabled = true;
+            }
+        }
+
+        function clearQR() {
+            document.getElementById('qrcode').innerHTML = '';
+            document.getElementById('qrcode').classList.remove('has-code');
+            document.getElementById('qr-text').value = '';
+            document.getElementById('qr-status').textContent = '';
+            document.getElementById('btn-download').disabled = true;
+            qrcodeInstance = null;
+        }
+
+        function downloadQR() {
+            const container = document.getElementById('qrcode');
+            const canvas = container.querySelector('canvas');
+            const image = container.querySelector('img');
+            let source = '';
+
+            if (canvas) source = canvas.toDataURL('image/png');
+            if (!source && image) source = image.src;
+            if (!source) return;
+
+            const link = document.createElement('a');
+            link.href = source;
+            link.download = 'qr-guard-code.png';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        }
+
+        function shake(el) {
+            el.style.transition = 'transform 0.1s';
+            el.style.transform = 'translateX(-6px)';
+            setTimeout(() => el.style.transform = 'translateX(6px)', 80);
+            setTimeout(() => el.style.transform = 'translateX(-4px)', 160);
+            setTimeout(() => el.style.transform = 'translateX(0)', 240);
+            el.focus();
+        }
+
+        function analyzeDirect() {
+            const field = document.getElementById('direct-content');
+            const content = field.value.trim();
+            if (!content) {
+                shake(field);
+                return;
+            }
+            document.getElementById('decoded-content').textContent = content;
+            document.getElementById('decoded-box').classList.add('visible');
+            analyzeContent(content);
+        }
+
+        function clearDirect() {
+            document.getElementById('direct-content').value = '';
+            document.getElementById('decoded-content').textContent = '';
+            document.getElementById('decoded-box').classList.remove('visible');
+            document.getElementById('check-result').classList.add('hidden');
+        }
+
+        async function copyDecoded() {
+            const content = document.getElementById('decoded-content').textContent;
+            if (!content) return;
+            try {
+                await navigator.clipboard.writeText(content);
+            } catch (error) {
+                const temp = document.createElement('textarea');
+                temp.value = content;
+                temp.style.position = 'fixed';
+                temp.style.opacity = '0';
+                document.body.appendChild(temp);
+                temp.select();
+                document.execCommand('copy');
+                temp.remove();
+            }
+        }
+
+        // ===== QR Check =====
+        let currentFile = null;
+
+        // Drag & drop
+        const zone = document.getElementById('upload-zone');
+        ['dragenter', 'dragover'].forEach(ev => {
+            zone.addEventListener(ev, e => {
+                e.preventDefault();
+                zone.classList.add('dragover');
+            });
+        });
+        ['dragleave', 'drop'].forEach(ev => {
+            zone.addEventListener(ev, e => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+            });
+        });
+        zone.addEventListener('drop', e => {
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                loadFile(file);
+            }
+        });
+
+        let previewObjectUrl = null;
+
+        function handleFile(e) {
+            const file = e.target.files && e.target.files[0];
+            if (file) loadFile(file);
+            // Сброс value, чтобы можно было снять то же фото снова
+            // (делаем с задержкой, иначе на iOS иногда теряется файл)
+            setTimeout(function () {
+                try { e.target.value = ''; } catch (err) {}
+            }, 500);
+        }
+
+        function isLikelyImage(file) {
+            if (!file) return false;
+            const type = (file.type || '').toLowerCase();
+            const name = (file.name || '').toLowerCase();
+            // На iPhone после камеры type часто пустой или image/heic
+            if (type.startsWith('image/')) return true;
+            if (type === 'application/octet-stream' || type === '') {
+                return /\.(jpe?g|png|webp|gif|heic|heif|bmp|tiff?)$/i.test(name) || type === '';
+            }
+            return /\.(jpe?g|png|webp|gif|heic|heif|bmp)$/i.test(name);
+        }
+
+        function showPreviewReady() {
+            document.getElementById('preview-box').classList.add('visible');
+            zone.classList.add('has-file');
+            document.getElementById('btn-check').disabled = false;
+            document.getElementById('decoded-box').classList.remove('visible');
+            document.getElementById('check-result').classList.add('hidden');
+        }
+
+        function loadFile(file) {
+            if (!isLikelyImage(file)) {
+                alert('Выберите изображение (JPG, PNG, HEIC, WEBP)');
+                return;
+            }
+            if (file.size > 10 * 1024 * 1024) {
+                alert('Файл слишком большой (макс. 10 МБ)');
+                return;
+            }
+
+            currentFile = file;
+            const img = document.getElementById('preview-img');
+
+            if (previewObjectUrl) {
+                try { URL.revokeObjectURL(previewObjectUrl); } catch (e) {}
+                previewObjectUrl = null;
+            }
+
+            // 1) Пробуем object URL — надёжнее на мобильных
+            try {
+                previewObjectUrl = URL.createObjectURL(file);
+            } catch (e) {
+                previewObjectUrl = null;
+            }
+
+            const onOk = function () {
+                showPreviewReady();
+            };
+
+            const onFail = function () {
+                // 2) Запасной путь: FileReader → data URL
+                const reader = new FileReader();
+                reader.onload = function (ev) {
+                    img.onload = onOk;
+                    img.onerror = function () {
+                        alert('Не удалось показать изображение. Попробуйте другое фото или «Галерея» вместо камеры.');
+                    };
+                    img.src = ev.target.result;
+                };
+                reader.onerror = function () {
+                    alert('Не удалось прочитать изображение');
+                };
+                reader.readAsDataURL(file);
+            };
+
+            if (previewObjectUrl) {
+                img.onload = onOk;
+                img.onerror = function () {
+                    // object URL не подошёл (например HEIC в части браузеров)
+                    onFail();
+                };
+                img.src = previewObjectUrl;
+                // Если картинка уже в кэше
+                if (img.complete && img.naturalWidth > 0) {
+                    onOk();
+                }
+            } else {
+                onFail();
+            }
+        }
+
+        function clearCheck() {
+            currentFile = null;
+            document.getElementById('qr-file').value = '';
+            document.getElementById('preview-box').classList.remove('visible');
+            const img = document.getElementById('preview-img');
+            img.removeAttribute('src');
+            img.src = '';
+            if (previewObjectUrl) {
+                try { URL.revokeObjectURL(previewObjectUrl); } catch (e) {}
+                previewObjectUrl = null;
+            }
+            zone.classList.remove('has-file');
+            document.getElementById('btn-check').disabled = true;
+            document.getElementById('decoded-box').classList.remove('visible');
+            document.getElementById('check-result').classList.add('hidden');
+            document.getElementById('decoded-content').textContent = '';
+        }
+
+        // OpenCV.js — ленивая загрузка
+        let opencvLoading = null;
+        function loadOpenCV() {
+            if (typeof cv !== 'undefined' && cv.Mat) return Promise.resolve();
+            if (opencvLoading) return opencvLoading;
+            opencvLoading = new Promise(function (resolve, reject) {
+                const s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js';
+                s.async = true;
+                const timer = setInterval(function () {
+                    if (typeof cv !== 'undefined' && cv.Mat) {
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }, 50);
+                s.onerror = function () {
+                    clearInterval(timer);
+                    reject(new Error('OpenCV load failed'));
+                };
+                // opencv runtime
+                const prev = window.Module;
+                window.Module = {
+                    onRuntimeInitialized: function () {
+                        clearInterval(timer);
+                        resolve();
+                    }
+                };
+                document.head.appendChild(s);
+                setTimeout(function () {
+                    if (typeof cv !== 'undefined' && cv.Mat) {
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }, 20000);
+            });
+            return opencvLoading;
+        }
+
+        function decodeWithOpenCV(imgEl) {
+            if (typeof cv === 'undefined' || !cv.Mat) return null;
+            try {
+                const src = cv.imread(imgEl);
+                const variants = [];
+
+                const gray = new cv.Mat();
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                variants.push(gray);
+
+                const blur = new cv.Mat();
+                cv.GaussianBlur(gray, blur, new cv.Size(3, 3), 0);
+                variants.push(blur);
+
+                const eq = new cv.Mat();
+                cv.equalizeHist(blur, eq);
+                variants.push(eq);
+
+                // чуть сильнее размытие против муара
+                const blur2 = new cv.Mat();
+                cv.GaussianBlur(gray, blur2, new cv.Size(5, 5), 0);
+                const eq2 = new cv.Mat();
+                cv.equalizeHist(blur2, eq2);
+                variants.push(eq2);
+
+                // CLAHE-like via equalize on cropped center
+                const w = gray.cols, h = gray.rows;
+                const rw = Math.floor(w * 0.75), rh = Math.floor(h * 0.75);
+                const rect = new cv.Rect(Math.floor((w - rw) / 2), Math.floor((h - rh) / 2), rw, rh);
+                const roi = gray.roi(rect);
+                const roiBlur = new cv.Mat();
+                cv.GaussianBlur(roi, roiBlur, new cv.Size(3, 3), 0);
+                const roiEq = new cv.Mat();
+                cv.equalizeHist(roiBlur, roiEq);
+                const roiBig = new cv.Mat();
+                cv.resize(roiEq, roiBig, new cv.Size(0, 0), 1.4, 1.4, cv.INTER_CUBIC);
+                variants.push(roiBig);
+
+                const det = new cv.QRCodeDetector();
+                // чуть мягче пороги поиска
+                try { det.setEpsX(0.2); det.setEpsY(0.2); } catch (e) {}
+
+                let result = null;
+                for (let i = 0; i < variants.length; i++) {
+                    const mat = variants[i];
+                    try {
+                        const points = new cv.Mat();
+                        const text = det.detectAndDecode(mat, points);
+                        points.delete();
+                        if (text && String(text).length) {
+                            result = String(text);
+                            break;
+                        }
+                    } catch (e) {}
+                    try {
+                        const points = new cv.Mat();
+                        const found = det.detect(mat, points);
+                        if (found) {
+                            const text = det.decode(mat, points);
+                            points.delete();
+                            if (text && String(text).length) {
+                                result = String(text);
+                                break;
+                            }
+                        } else {
+                            points.delete();
+                        }
+                    } catch (e) {}
+                }
+
+                // cleanup
+                src.delete();
+                for (let i = 0; i < variants.length; i++) {
+                    try { variants[i].delete(); } catch (e) {}
+                }
+                return result;
+            } catch (e) {
+                console.warn('OpenCV decode error', e);
+                return null;
+            }
+        }
+
+        async function scanQR() {
+            if (!currentFile) {
+                alert('Сначала выберите или сфотографируйте QR-код');
+                return;
+            }
+
+            const btn = document.getElementById('btn-check');
+            const original = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner"></span> Декодирование...';
+            btn.disabled = true;
+
+            const img = document.getElementById('preview-img');
+
+            const finish = function () {
+                btn.innerHTML = original;
+                btn.disabled = false;
+            };
+
+            const success = function (text) {
+                if (!text || !String(text).trim()) return false;
+                document.getElementById('decoded-content').textContent = String(text).trim();
+                document.getElementById('decoded-box').classList.add('visible');
+                analyzeContent(String(text).trim());
+                finish();
+                return true;
+            };
+
+            try {
+                // дождаться картинки
+                if (!(img.complete && (img.naturalWidth || img.width))) {
+                    await new Promise(function (resolve, reject) {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        setTimeout(resolve, 1000);
+                    });
+                }
+
+                // 1) OpenCV.js — главный движок для фото (в т.ч. с экрана)
+                btn.innerHTML = '<span class="spinner"></span> Загрузка распознавателя...';
+                try {
+                    await loadOpenCV();
+                    btn.innerHTML = '<span class="spinner"></span> Декодирование...';
+                    const text = decodeWithOpenCV(img);
+                    if (text && success(text)) return;
+                } catch (e) {
+                    console.warn('OpenCV unavailable', e);
+                }
+
+                // 2) html5-qrcode
+                try {
+                    if (typeof Html5Qrcode !== 'undefined') {
+                        const reader = new Html5Qrcode('qr-reader-hidden', { verbose: false });
+                        try {
+                            const text = await reader.scanFile(currentFile, false);
+                            if (text && success(text)) return;
+                        } catch (e) {}
+                        try { reader.clear(); } catch (e) {}
+                    }
+                } catch (e) {}
+
+                // 3) BarcodeDetector
+                try {
+                    if (typeof BarcodeDetector !== 'undefined') {
+                        const formats = await BarcodeDetector.getSupportedFormats();
+                        if (formats && formats.indexOf('qr_code') !== -1) {
+                            const detector = new BarcodeDetector({ formats: ['qr_code'] });
+                            const codes = await detector.detect(img);
+                            if (codes && codes[0] && codes[0].rawValue && success(codes[0].rawValue)) return;
+                            if (typeof createImageBitmap === 'function') {
+                                const bmp = await createImageBitmap(currentFile);
+                                const codes2 = await detector.detect(bmp);
+                                if (bmp.close) bmp.close();
+                                if (codes2 && codes2[0] && codes2[0].rawValue && success(codes2[0].rawValue)) return;
+                            }
+                        }
+                    }
+                } catch (e) {}
+
+                // 4) qr-scanner
+                try {
+                    if (typeof QrScanner !== 'undefined') {
+                        QrScanner.WORKER_PATH = 'https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner-worker.min.js';
+                        const result = await QrScanner.scanImage(currentFile, {
+                            returnDetailedScanResult: true,
+                            alsoTryWithoutScanRegion: true
+                        });
+                        const text = typeof result === 'string' ? result : (result && result.data);
+                        if (text && success(text)) return;
+                    }
+                } catch (e) {}
+
+                // 5) jsQR на предобработанном canvas
+                if (typeof jsQR === 'function' && img.naturalWidth) {
+                    const w = img.naturalWidth, h = img.naturalHeight;
+                    const attempts = [
+                        { side: 900, crop: 0.8 },
+                        { side: 700, crop: 0.7 },
+                        { side: 1100, crop: 1 },
+                        { side: 500, crop: 0.6 }
+                    ];
+                    for (let a = 0; a < attempts.length; a++) {
+                        const cfg = attempts[a];
+                        const sw = Math.round(w * cfg.crop), sh = Math.round(h * cfg.crop);
+                        const sx = Math.round((w - sw) / 2), sy = Math.round((h - sh) / 2);
+                        const scale = Math.min(2, cfg.side / Math.max(sw, sh));
+                        const cw = Math.max(1, Math.round(sw * scale));
+                        const ch = Math.max(1, Math.round(sh * scale));
+                        const canvas = document.createElement('canvas');
+                        canvas.width = cw; canvas.height = ch;
+                        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+                        const imageData = ctx.getImageData(0, 0, cw, ch);
+                        const d = imageData.data;
+                        // grayscale + contrast
+                        for (let i = 0; i < d.length; i += 4) {
+                            let y = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+                            y = (y - 128) * 1.8 + 128;
+                            if (y < 0) y = 0; if (y > 255) y = 255;
+                            d[i] = d[i + 1] = d[i + 2] = y;
+                        }
+                        const code = jsQR(imageData.data, cw, ch, { inversionAttempts: 'attemptBoth' });
+                        if (code && code.data && success(code.data)) return;
+                    }
+                }
+
+                showResult('warning', 'QR-код не найден', 35, [
+                    { type: 'warn', text: 'Не удалось распознать QR-код. Попробуйте более резкий кадр, уберите блик или загрузите скриншот.' }
+                ]);
+                document.getElementById('decoded-box').classList.remove('visible');
+            } catch (error) {
+                console.error(error);
+                showResult('warning', 'Ошибка обработки', 30, [
+                    { type: 'warn', text: 'Не удалось обработать изображение. Проверьте интернет (нужны библиотеки) и попробуйте другое фото.' }
+                ]);
+            }
+            finish();
+        }
+
+        function analyzeContentLegacy(content) {
+            const trimmed = content.trim();
+            const checks = [];
+            let score = 100;
+
+            // Detect content type
+            const isUrl = /^https?:\/\//i.test(trimmed) || /^www\./i.test(trimmed) ||
+                (!/\s/.test(trimmed) && /\.[a-z]{2,}/i.test(trimmed) && !trimmed.includes('@'));
+            const isWifi = /^WIFI:/i.test(trimmed);
+            const isMailto = /^mailto:/i.test(trimmed);
+            const isTel = /^tel:/i.test(trimmed);
+            const isSms = /^sms:/i.test(trimmed);
+            const isVCard = /^BEGIN:VCARD/i.test(trimmed);
+            const isGeo = /^geo:/i.test(trimmed);
+
+            if (isWifi) {
+                checks.push({ type: 'warn', text: 'QR-код содержит данные Wi-Fi. Подключение к неизвестной сети может быть опасно.' });
+                score -= 20;
+                showResult(score >= 80 ? 'safe' : score >= 50 ? 'warning' : 'danger',
+                    score >= 50 ? 'Wi-Fi QR-код — будьте осторожны' : 'Подозрительный Wi-Fi QR',
+                    score, checks, score >= 80 ? 'score-safe' : score >= 50 ? 'score-warn' : 'score-danger');
+                return;
+            }
+
+            if (isMailto || isTel || isSms || isVCard || isGeo) {
+                checks.push({ type: 'ok', text: 'Содержимое не является веб-ссылкой (контакт / телефон / геолокация).' });
+                showResult('safe', 'Относительно безопасно', 90, checks, 'score-safe');
+                return;
+            }
+
+            if (!isUrl && !/^https?:\/\//i.test(trimmed) && !trimmed.includes('://')) {
+                // Plain text
+                const lower = trimmed.toLowerCase();
+                const badKeywords = ['password', 'login', 'verify', 'bitcoin', 'wallet', 'seed phrase', 'private key'];
+                const found = badKeywords.filter(k => lower.includes(k));
+                if (found.length) {
+                    checks.push({ type: 'warn', text: 'В тексте есть потенциально чувствительные слова: ' + found.join(', ') });
+                    score -= 15;
+                } else {
+                    checks.push({ type: 'ok', text: 'Обычный текст, веб-ссылка не обнаружена.' });
+                }
+                const level = score >= 80 ? 'safe' : 'warning';
+                showResult(level, level === 'safe' ? 'Относительно безопасно' : 'Есть замечания', score, checks,
+                    level === 'safe' ? 'score-safe' : 'score-warn');
+                return;
+            }
+
+            // URL analysis
+            let url = trimmed;
+            if (!/^https?:\/\//i.test(url)) url = 'http://' + url;
+
+            let parsed;
+            try {
+                parsed = new URL(url);
+            } catch (e) {
+                showResult('danger', 'Подозрительное содержимое', 20, [
+                    { type: 'bad', text: 'Похоже на ссылку, но URL разобрать не удалось. Возможна попытка обмана.' }
+                ], 'score-danger');
+                return;
+            }
+
+            const hostname = parsed.hostname.toLowerCase();
+            const full = url.toLowerCase();
+
+            if (parsed.protocol === 'https:') {
+                checks.push({ type: 'ok', text: 'Используется HTTPS — соединение шифруется.' });
+            } else {
+                checks.push({ type: 'bad', text: 'Отсутствует HTTPS. Данные могут перехватываться.' });
+                score -= 30;
+            }
+
+            if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) || hostname.includes(':')) {
+                checks.push({ type: 'bad', text: 'Вместо доменного имени используется IP-адрес — частый признак фишинга.' });
+                score -= 25;
+            } else {
+                checks.push({ type: 'ok', text: 'Используется доменное имя.' });
+            }
+
+            const badTlds = ['.xyz', '.top', '.icu', '.tk', '.ml', '.ga', '.cf', '.gq', '.pw', '.cc', '.ws', '.buzz', '.club', '.online', '.site', '.fun', '.rest', '.cam'];
+            if (badTlds.some(tld => hostname.endsWith(tld))) {
+                checks.push({ type: 'warn', text: 'Подозрительный домен верхнего уровня (TLD). Часто используется в мошеннических схемах.' });
+                score -= 20;
+            } else {
+                checks.push({ type: 'ok', text: 'TLD не относится к наиболее рискованным.' });
+            }
+
+            const shorteners = ['bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'is.gd', 'buff.ly', 'adf.ly', 'j.mp', 'rb.gy', 'cutt.ly', 'shorturl.at', 'rebrand.ly'];
+            if (shorteners.some(s => hostname === s || hostname.endsWith('.' + s))) {
+                checks.push({ type: 'warn', text: 'Обнаружен сокращатель ссылок. Настоящий адрес скрыт — будьте осторожны.' });
+                score -= 15;
+            }
+
+            const badKeywords = ['login', 'signin', 'sign-in', 'password', 'passwd', 'verify', 'update', 'secure', 'account', 'banking', 'wallet', 'crypto', 'paypal', 'microsoft', 'appleid', 'support', 'confirm', 'unlock', 'suspend'];
+            const found = badKeywords.filter(k => full.includes(k));
+            if (found.length >= 2) {
+                checks.push({ type: 'bad', text: 'В URL много подозрительных слов, типичных для фишинга: ' + found.slice(0, 5).join(', ') });
+                score -= 25;
+            } else if (found.length === 1) {
+                checks.push({ type: 'warn', text: 'В URL есть слово, часто встречающееся в фишинговых ссылках: ' + found[0] });
+                score -= 10;
+            }
+
+            if (hostname.split('.').length > 4) {
+                checks.push({ type: 'warn', text: 'Слишком много уровней поддоменов — возможна маскировка.' });
+                score -= 10;
+            }
+            if (url.length > 150) {
+                checks.push({ type: 'warn', text: 'URL очень длинный — иногда используется для сокрытия настоящей цели.' });
+                score -= 5;
+            }
+
+            let level, title, badgeClass;
+            if (score >= 80) {
+                level = 'safe';
+                title = 'Относительно безопасно';
+                badgeClass = 'score-safe';
+            } else if (score >= 50) {
+                level = 'warning';
+                title = 'Есть признаки риска';
+                badgeClass = 'score-warn';
+            } else {
+                level = 'danger';
+                title = 'Высокий риск!';
+                badgeClass = 'score-danger';
+            }
+
+            showResult(level, title, score, checks, badgeClass);
+        }
+
+        function showResultLegacy(level, title, score, checks, badgeClass) {
+            const box = document.getElementById('check-result');
+            box.className = 'result-box result-' + level;
+            box.classList.remove('hidden');
+
+            let html = `<h3>${title} <span class="score-badge ${badgeClass || ''}">${score}/100</span></h3>`;
+            html += '<ul class="checks-list">';
+            checks.forEach(c => {
+                const cls = c.type === 'ok' ? 'ok' : c.type === 'warn' ? 'warn' : 'bad';
+                html += `<li class="check-${cls}">${c.text}</li>`;
+            });
+            html += '</ul>';
+
+            if (level !== 'safe') {
+                html += '<p style="margin-top:1rem; font-size:0.9rem; color:var(--text-muted);"><strong style="color:#fca5a5;">Рекомендация:</strong> не переходите по ссылке и не вводите никаких данных. Проверьте источник QR-кода.</p>';
+            }
+            box.innerHTML = html;
+        }
+
+        function analyzeContent(content) {
+            const trimmed = content.trim();
+            const checks = [];
+            const meta = {};
+            let score = 100;
+
+            if (!trimmed) {
+                showResult('warning', 'Пустое содержимое', 0, [
+                    { type: 'warn', text: 'В QR-коде нет данных для анализа.' }
+                ]);
+                return;
+            }
+
+            const upper = trimmed.toUpperCase();
+            const lower = trimmed.toLowerCase();
+
+            // ——— Wi-Fi ———
+            if (upper.startsWith('WIFI:')) {
+                checks.push({ type: 'warn', text: 'Код содержит параметры Wi-Fi. Подключайтесь только к сети, владельца которой вы знаете.' });
+                checks.push({ type: 'warn', text: 'Название сети и пароль внутри QR-кода сами по себе не подтверждают безопасность точки доступа.' });
+                if (/T:WEP/i.test(trimmed)) {
+                    checks.push({ type: 'bad', text: 'Сеть использует устаревшее шифрование WEP — оно легко взламывается.' });
+                    score = 40;
+                } else if (/T:nopass|T:|P:;|P::$/i.test(trimmed) || /P:;/.test(trimmed)) {
+                    checks.push({ type: 'warn', text: 'Сеть без пароля (открытая). Трафик может перехватываться.' });
+                    score = 55;
+                } else {
+                    score = 65;
+                }
+                showResult(score < 50 ? 'danger' : 'warning', 'Требуется проверка сети', score, checks, { 'Тип данных': 'Wi-Fi' });
+                return;
+            }
+
+            // ——— Действия (не веб) ———
+            const actionTypes = [
+                ['mailto:', 'Электронное письмо'],
+                ['tel:', 'Телефонный номер'],
+                ['sms:', 'SMS-сообщение'],
+                ['smsto:', 'SMS-сообщение'],
+                ['geo:', 'Геолокация'],
+                ['begin:vcard', 'Контакт vCard']
+            ];
+            const action = actionTypes.find(([prefix]) => lower.startsWith(prefix));
+            if (action) {
+                checks.push({ type: 'ok', text: 'Веб-ссылка не обнаружена.' });
+                checks.push({ type: 'warn', text: 'Перед выполнением действия проверьте адресата, номер или координаты.' });
+                if (lower.startsWith('tel:') || lower.startsWith('sms:') || lower.startsWith('smsto:')) {
+                    const digits = trimmed.replace(/\D/g, '');
+                    if (digits.length < 5) {
+                        checks.push({ type: 'warn', text: 'Номер выглядит слишком коротким — возможна ошибка или подмена.' });
+                        score = 70;
+                    }
+                }
+                showResult(score >= 80 ? 'warning' : 'warning', 'Проверьте действие перед подтверждением', Math.min(score, 80), checks, { 'Тип данных': action[1] });
+                return;
+            }
+
+            // ——— Нестандартные схемы ———
+            const explicitScheme = trimmed.match(/^([a-z][a-z0-9+.-]*):/i);
+            const looksLikeUrl = /^https?:\/\//i.test(trimmed) || /^www\./i.test(trimmed) ||
+                (!/\s/.test(trimmed) && /^[^/]+\.[a-zа-яё]{2,}(?:[/?#:]|$)/i.test(trimmed));
+
+            if (explicitScheme && !/^https?:$/i.test(explicitScheme[1] + ':')) {
+                const scheme = explicitScheme[1].toLowerCase();
+                const dangerousSchemes = ['javascript', 'data', 'vbscript', 'file', 'blob', 'intent', 'market', 'app', 'ms-appx', 'ms-appx-web'];
+                if (dangerousSchemes.includes(scheme)) {
+                    checks.push({ type: 'bad', text: 'Опасная схема «' + scheme + ':» — может выполнять код или открывать приложение без вашего ведома.' });
+                    score = 10;
+                } else {
+                    checks.push({ type: 'bad', text: 'Нестандартная схема «' + scheme + ':». Она может запускать стороннее приложение.' });
+                    score = 25;
+                }
+                checks.push({ type: 'warn', text: 'Не открывайте такой код, если не уверены в источнике и назначении.' });
+                showResult('danger', 'Опасная или нестандартная команда', score, checks, { 'Схема': scheme });
+                return;
+            }
+
+            // ——— Обычный текст ———
+            if (!looksLikeUrl) {
+                const sensitiveWords = [
+                    'password', 'passwd', 'пароль', 'seed phrase', 'seed-phrase', 'mnemonic',
+                    'private key', 'privatekey', 'секретный ключ', 'секретныйключ',
+                    'cvv', 'card number', 'номер карты', 'pin-код', 'пин-код'
+                ];
+                const found = sensitiveWords.filter(word => lower.includes(word));
+                if (found.length) {
+                    checks.push({ type: 'warn', text: 'В тексте есть слова, связанные с конфиденциальными данными: ' + found.slice(0, 4).join(', ') + '.' });
+                    score -= 25;
+                } else {
+                    checks.push({ type: 'ok', text: 'Содержимое похоже на обычный текст, а не на веб-ссылку.' });
+                }
+                checks.push({ type: 'warn', text: 'Сайт анализирует только структуру данных и не подтверждает их достоверность.' });
+                showResult(score >= 80 ? 'safe' : 'warning',
+                    score >= 80 ? 'Явных признаков риска не найдено' : 'Есть причина для осторожности',
+                    score, checks, { 'Тип данных': 'Текст' });
+                return;
+            }
+
+            // ——— Разбор URL ———
+            let urlText = trimmed;
+            if (/^www\./i.test(urlText) || !/^https?:\/\//i.test(urlText)) {
+                urlText = 'https://' + urlText;
+                checks.push({ type: 'warn', text: 'В коде не указана схема протокола. Браузер выберет её сам.' });
+                score -= 8;
+            }
+
+            let parsed;
+            try {
+                parsed = new URL(urlText);
+            } catch (error) {
+                showResult('danger', 'Адрес имеет неверный формат', 15, [
+                    { type: 'bad', text: 'Содержимое похоже на ссылку, но браузер не может корректно разобрать адрес.' }
+                ]);
+                return;
+            }
+
+            const hostname = parsed.hostname.toLowerCase();
+            const labels = hostname.split('.').filter(Boolean);
+            const pathAndQuery = (parsed.pathname + parsed.search + parsed.hash).toLowerCase();
+            const fullLower = urlText.toLowerCase();
+
+            // Регистрируемый домен (последние 2 метки, грубо)
+            const regDomain = labels.length >= 2 ? labels.slice(-2).join('.') : hostname;
+
+            meta['Тип данных'] = 'Веб-ссылка';
+            meta['Домен'] = hostname || 'не определён';
+            meta['Протокол'] = parsed.protocol.replace(':', '').toUpperCase();
+            if (parsed.port) meta['Порт'] = parsed.port;
+
+            // 1. HTTPS / HTTP
+            if (parsed.protocol === 'https:') {
+                checks.push({ type: 'ok', text: 'Соединение использует HTTPS.' });
+            } else if (parsed.protocol === 'http:') {
+                checks.push({ type: 'bad', text: 'Используется HTTP без шифрования — данные могут перехватываться.' });
+                score -= 30;
+            } else {
+                checks.push({ type: 'bad', text: 'Неожиданный протокол: ' + parsed.protocol });
+                score -= 25;
+            }
+
+            // 2. @ и credentials в URL (классика фишинга)
+            if (parsed.username || parsed.password || /https?:\/\/[^/]*@/i.test(trimmed)) {
+                checks.push({ type: 'bad', text: 'В адресе есть символ @ или логин/пароль. Так часто скрывают настоящий домен.' });
+                score -= 35;
+            }
+
+            // 3. IP вместо домена
+            const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+            const isIpv6 = hostname.startsWith('[') && hostname.endsWith(']');
+            if (isIpv4 || isIpv6) {
+                checks.push({ type: 'bad', text: 'Вместо доменного имени указан IP-адрес — частый признак фишинга или вредоносной страницы.' });
+                score -= 22;
+            }
+
+            // 4. Punycode / IDN
+            if (hostname.includes('xn--')) {
+                checks.push({ type: 'warn', text: 'Домен в формате Punycode (xn--). Им пользуются и честные международные сайты, и мошенники для подмены символов.' });
+                score -= 18;
+            }
+
+            // 5. Смешение кириллицы и латиницы в домене
+            const hasCyr = /[а-яё]/i.test(hostname);
+            const hasLat = /[a-z]/i.test(hostname);
+            if (hasCyr && hasLat) {
+                checks.push({ type: 'bad', text: 'В домене смешаны кириллица и латиница. Так маскируют похожие на известные бренды адреса.' });
+                score -= 28;
+            }
+
+            // 5b. Омоглифы — подмена похожих букв (е→e, о→o, р→p и т.д.)
+            const homoglyphMap = {
+                // Кириллица → латиница
+                'а': 'a', 'А': 'a', 'е': 'e', 'Е': 'e', 'о': 'o', 'О': 'o',
+                'р': 'p', 'Р': 'p', 'с': 'c', 'С': 'c', 'у': 'y', 'У': 'y',
+                'х': 'x', 'Х': 'x', 'к': 'k', 'К': 'k', 'м': 'm', 'М': 'm',
+                'н': 'h', 'Н': 'h', 'в': 'b', 'В': 'b', 'т': 't', 'Т': 't',
+                'і': 'i', 'І': 'i', 'ј': 'j', 'ѕ': 's', 'ӏ': 'l', 'ɡ': 'g',
+                // Греческие и прочие похожие
+                'α': 'a', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'υ': 'y', 'χ': 'x',
+                'ν': 'v', 'ι': 'i', 'η': 'n', 'κ': 'k', 'μ': 'm',
+                // Похожие латинские / специальные
+                'а': 'a', 'ｅ': 'e', 'о': 'o', 'р': 'p',
+                '０': '0', '１': '1', '３': '3', '４': '4', '５': '5',
+                'ⅼ': 'l', 'ⅰ': 'i', 'ⅰ': 'i'
+            };
+
+            function normalizeHomoglyphs(str) {
+                let out = '';
+                for (let i = 0; i < str.length; i++) {
+                    const ch = str[i];
+                    out += Object.prototype.hasOwnProperty.call(homoglyphMap, ch) ? homoglyphMap[ch] : ch;
+                }
+                // Дополнительно: частые визуальные подмены уже в латинице
+                return out
+                    .toLowerCase()
+                    .replace(/0/g, 'o')
+                    .replace(/1/g, 'l')
+                    .replace(/3/g, 'e')
+                    .replace(/5/g, 's')
+                    .replace(/\$/g, 's');
+            }
+
+            // Известные бренды и их «канонические» домены (без зоны)
+            const brandTargets = [
+                { name: 'Google', keys: ['google', 'gmail', 'youtube', 'youtu'] },
+                { name: 'Apple', keys: ['apple', 'icloud', 'appleid'] },
+                { name: 'Microsoft', keys: ['microsoft', 'outlook', 'office', 'live', 'hotmail', 'msn'] },
+                { name: 'PayPal', keys: ['paypal'] },
+                { name: 'Amazon', keys: ['amazon', 'aws'] },
+                { name: 'Facebook / Meta', keys: ['facebook', 'fb', 'instagram', 'whatsapp', 'meta'] },
+                { name: 'Netflix', keys: ['netflix'] },
+                { name: 'Сбер', keys: ['sber', 'sberbank', 'sberbank'] },
+                { name: 'ВТБ', keys: ['vtb'] },
+                { name: 'Тинькофф / Т-Банк', keys: ['tinkoff', 'tbank', 'tinkof'] },
+                { name: 'Альфа-Банк', keys: ['alfabank', 'alfa'] },
+                { name: 'Госуслуги', keys: ['gosuslugi', 'gosusluga'] },
+                { name: 'Яндекс', keys: ['yandex', 'ya'] },
+                { name: 'Mail.ru', keys: ['mailru', 'mail'] },
+                { name: 'VK', keys: ['vk', 'vkontakte'] },
+                { name: 'Ozon', keys: ['ozon'] },
+                { name: 'Wildberries', keys: ['wildberries', 'wb'] },
+                { name: 'Avito', keys: ['avito'] },
+                { name: 'Steam', keys: ['steam', 'steampowered'] },
+                { name: 'Telegram', keys: ['telegram', 'tg'] },
+                { name: 'WhatsApp', keys: ['whatsapp'] },
+                { name: 'Twitter / X', keys: ['twitter'] },
+                { name: 'LinkedIn', keys: ['linkedin'] },
+                { name: 'eBay', keys: ['ebay'] },
+                { name: 'Adobe', keys: ['adobe'] },
+                { name: 'Dropbox', keys: ['dropbox'] },
+                { name: 'Binance', keys: ['binance'] },
+                { name: 'СберМегаМаркет', keys: ['sbermegamarket'] }
+            ];
+
+            // Официальные домены, которые НЕ нужно считать подделкой
+            const officialDomains = new Set([
+                'google.com', 'google.ru', 'gmail.com', 'youtube.com', 'youtu.be',
+                'apple.com', 'icloud.com',
+                'microsoft.com', 'outlook.com', 'office.com', 'live.com', 'hotmail.com',
+                'paypal.com', 'paypal.me',
+                'amazon.com', 'amazon.ru',
+                'facebook.com', 'fb.com', 'instagram.com', 'whatsapp.com', 'meta.com',
+                'netflix.com',
+                'sberbank.ru', 'sber.ru', 'sberbank.com',
+                'vtb.ru', 'tinkoff.ru', 'tbank.ru', 'alfabank.ru',
+                'gosuslugi.ru', 'yandex.ru', 'ya.ru', 'mail.ru',
+                'vk.com', 'vk.ru', 'ozon.ru', 'wildberries.ru', 'wb.ru', 'avito.ru',
+                'steampowered.com', 'steamcommunity.com', 'telegram.org', 't.me',
+                'twitter.com', 'x.com', 'linkedin.com', 'ebay.com', 'adobe.com',
+                'dropbox.com', 'binance.com'
+            ]);
+
+            const normalizedHost = normalizeHomoglyphs(hostname);
+            // Были ли в исходном домене символы из карты омоглифов?
+            let hadHomoglyphChars = false;
+            for (let i = 0; i < hostname.length; i++) {
+                if (Object.prototype.hasOwnProperty.call(homoglyphMap, hostname[i])) {
+                    hadHomoglyphChars = true;
+                    break;
+                }
+            }
+
+            // Если после нормализации домен изменился — почти наверняка была подмена
+            if (hadHomoglyphChars && normalizedHost !== hostname.toLowerCase()) {
+                checks.push({ type: 'bad', text: 'В домене обнаружены подменённые символы (омоглифы): похожие буквы из другого алфавита. Так маскируют адреса известных сайтов.' });
+                score -= 30;
+            }
+
+            // Сравнение нормализованного имени с брендами
+            // Берём основную часть домена (без зоны)
+            const hostLabelsNorm = normalizedHost.split('.').filter(Boolean);
+            const sldNorm = hostLabelsNorm.length >= 2 ? hostLabelsNorm[hostLabelsNorm.length - 2] : hostLabelsNorm[0] || '';
+            const fullNormNoTld = hostLabelsNorm.slice(0, -1).join('.') || normalizedHost;
+
+            // Не ругаем официальные домены
+            const isOfficial = officialDomains.has(hostname) ||
+                officialDomains.has(normalizedHost) ||
+                [...officialDomains].some(d => hostname === d || hostname.endsWith('.' + d));
+
+            // Предварительный список сокращателей (полный — ниже)
+            const shortenerHostsEarly = new Set([
+                'bit.ly', 'bitly.com', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'is.gd',
+                'buff.ly', 'j.mp', 'rb.gy', 'cutt.ly', 'shorturl.at', 'rebrand.ly',
+                'clck.ru', 'vk.cc', 'youtu.be', 'y2u.be', 't.ly', 's.id'
+            ]);
+            const isShortenerEarly = shortenerHostsEarly.has(hostname) ||
+                [...shortenerHostsEarly].some(s => hostname.endsWith('.' + s));
+
+            if (!isOfficial && !isShortenerEarly) {
+                for (let b = 0; b < brandTargets.length; b++) {
+                    const brand = brandTargets[b];
+                    for (let k = 0; k < brand.keys.length; k++) {
+                        const key = brand.keys[k];
+                        // Точное совпадение SLD с брендом, но домен не официальный
+                        // или бренд «вшит» в поддомен/имя: secure-google-login.evil.xyz
+                        const exactSld = sldNorm === key;
+                        const brandEmbedded =
+                            fullNormNoTld === key ||
+                            fullNormNoTld.startsWith(key + '-') ||
+                            fullNormNoTld.endsWith('-' + key) ||
+                            fullNormNoTld.includes('-' + key + '-') ||
+                            (sldNorm.includes(key) && sldNorm !== key && sldNorm.length <= key.length + 6);
+
+                        if (exactSld || brandEmbedded) {
+                            // Дополнительно: если были омоглифы или смешанный алфавит — ещё хуже
+                            const severity = (hadHomoglyphChars || (hasCyr && hasLat)) ? 'bad' : 'warn';
+                            const penalty = severity === 'bad' ? 32 : 20;
+                            checks.push({
+                                type: severity,
+                                text: 'Домен похож на «' + brand.name + '» (' + key + '), но не совпадает с официальным адресом. Возможна подделка через похожие символы или чужую зону.'
+                            });
+                            score -= penalty;
+                            // Один бренд достаточно
+                            b = brandTargets.length;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 6. Сокращатели ссылок (расширенный список)
+            const shorteners = new Set([
+                'bit.ly', 'bitly.com', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'is.gd',
+                'buff.ly', 'j.mp', 'rb.gy', 'cutt.ly', 'shorturl.at', 'rebrand.ly',
+                'clck.ru', 'vk.cc', 'youtu.be', 'y2u.be', 'tiny.cc', 'soo.gd',
+                'bl.ink', 'lnkd.in', 'db.tt', 'qr.ae', 'adf.ly', 'bc.vc',
+                'v.gd', 'tr.im', 'cli.gs', 'u.to', 't.ly', 'short.io',
+                's.id', 'cutt.us', 'hyperurl.co', 'kutt.it', 'gg.gg', 'ow.ly'
+            ]);
+            const isShortener = shorteners.has(hostname) ||
+                [...shorteners].some(s => hostname === s || hostname.endsWith('.' + s));
+            if (isShortener) {
+                checks.push({ type: 'warn', text: 'Сокращённая ссылка («' + hostname + '») скрывает конечный адрес. Не переходите, пока не узнаете, куда она ведёт.' });
+                score -= 24;
+            }
+
+            // 7. Рискованные / часто абьюзимые TLD
+            const riskyTlds = [
+                '.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.icu', '.pw',
+                '.cc', '.ws', '.buzz', '.club', '.work', '.click', '.link', '.zip',
+                '.mov', '.country', '.stream', '.download', '.loan', '.win', '.bid',
+                '.trade', '.date', '.review', '.country', '.science', '.kim'
+            ];
+            if (riskyTlds.some(tld => hostname.endsWith(tld))) {
+                checks.push({ type: 'warn', text: 'Домен использует зону, которая часто встречается в мошеннических и временных сайтах.' });
+                score -= 16;
+            }
+
+            // 8. Много уровней поддоменов
+            if (labels.length > 4) {
+                checks.push({ type: 'warn', text: 'Слишком много уровней поддоменов (' + labels.length + '). Настоящий сайт легко спрятать среди них.' });
+                score -= 12;
+            }
+
+            // 9. Подозрительные слова в домене
+            const hostPhishTerms = [
+                'login', 'signin', 'sign-in', 'log-in', 'verify', 'verification',
+                'secure', 'security', 'account', 'accounts', 'wallet', 'support',
+                'confirm', 'unlock', 'update', 'password', 'passwd', 'banking',
+                'paypal', 'appleid', 'microsoft', 'sberbank', 'vtb', 'alfabank',
+                'auth', 'authorize', 'webscr', 'ebayisapi', 'signin', 'recovery'
+            ];
+            const hostMatches = hostPhishTerms.filter(word => hostname.includes(word));
+            if (hostMatches.length >= 2) {
+                checks.push({ type: 'bad', text: 'В домене сразу несколько слов, типичных для поддельных страниц входа: ' + hostMatches.slice(0, 4).join(', ') + '.' });
+                score -= 22;
+            } else if (hostMatches.length === 1) {
+                checks.push({ type: 'warn', text: 'В домене есть слово «' + hostMatches[0] + '», часто используемое в фишинге.' });
+                score -= 10;
+            }
+
+            // 10. Подозрительные слова в пути / query
+            const pathPhishTerms = [
+                'login', 'signin', 'sign-in', 'password', 'passwd', 'verify', 'verification',
+                'account', 'secure', 'update', 'confirm', 'unlock', 'suspend', 'limited',
+                'webscr', 'cmd=_login', 'authenticate', 'wallet', 'seed', 'mnemonic',
+                'private-key', 'privatekey', 'recovery'
+            ];
+            const pathMatches = pathPhishTerms.filter(word => pathAndQuery.includes(word));
+            if (pathMatches.length >= 3) {
+                checks.push({ type: 'bad', text: 'В адресе много слов, типичных для фишинговых страниц: ' + pathMatches.slice(0, 5).join(', ') + '.' });
+                score -= 20;
+            } else if (pathMatches.length >= 1) {
+                checks.push({ type: 'warn', text: 'В пути ссылки есть слова, часто встречающиеся в фишинге: ' + pathMatches.slice(0, 3).join(', ') + '.' });
+                score -= 8;
+            }
+
+            // 11. Много URL-encoded символов
+            const encodedParts = (trimmed.match(/%[0-9a-f]{2}/gi) || []).length;
+            if (encodedParts >= 8) {
+                checks.push({ type: 'warn', text: 'В адресе много закодированных символов (%XX) — ссылку сложно проверить глазами.' });
+                score -= 12;
+            } else if (encodedParts >= 4) {
+                checks.push({ type: 'warn', text: 'Часть адреса закодирована — внимательно проверьте домен.' });
+                score -= 6;
+            }
+
+            // 12. Нестандартный порт
+            if (parsed.port && !['80', '443'].includes(parsed.port)) {
+                checks.push({ type: 'warn', text: 'Нестандартный порт: ' + parsed.port + '. Обычные сайты используют 80 или 443.' });
+                score -= 12;
+            }
+
+            // 13. Параметры редиректа / open redirect
+            const redirectParams = [
+                'url', 'uri', 'redirect', 'redirect_url', 'redirect_uri', 'return',
+                'returnurl', 'return_url', 'continue', 'next', 'target', 'dest',
+                'destination', 'redir', 'goto', 'link', 'u', 'r'
+            ];
+            const foundRedirects = redirectParams.filter(key => parsed.searchParams.has(key));
+            if (foundRedirects.length) {
+                checks.push({ type: 'warn', text: 'Есть параметр перенаправления («' + foundRedirects[0] + '»). После открытия вас могут увести на другой сайт.' });
+                score -= 12;
+            }
+
+            // 14. Очень длинный URL
+            if (trimmed.length > 250) {
+                checks.push({ type: 'warn', text: 'Ссылка очень длинная (' + trimmed.length + ' символов) — её трудно проверить вручную.' });
+                score -= 10;
+            } else if (trimmed.length > 150) {
+                checks.push({ type: 'warn', text: 'Ссылка длиннее обычного — проверьте домен особенно внимательно.' });
+                score -= 5;
+            }
+
+            // 15. Data URI / javascript внутри query (редко, но бывает)
+            if (/javascript:|data:text\/html/i.test(pathAndQuery)) {
+                checks.push({ type: 'bad', text: 'В параметрах ссылки обнаружена опасная конструкция (javascript: или data:).' });
+                score -= 40;
+            }
+
+            // 16. Домен состоит только из цифр / подозрительно короткий
+            if (/^\d+\.\d+$/.test(regDomain) || (labels.length >= 2 && labels[labels.length - 2].length <= 2 && !isShortener)) {
+                // skip overly aggressive short second-level — only flag pure numeric-ish
+            }
+            if (/^[0-9.-]+$/.test(hostname.replace(/\./g, ''))) {
+                checks.push({ type: 'warn', text: 'Домен выглядит необычно (почти только цифры).' });
+                score -= 10;
+            }
+
+            // Итог
+            if (!checks.some(item => item.type === 'bad') && score >= 80) {
+                checks.push({ type: 'ok', text: 'Явных структурных признаков фишинга не найдено.' });
+            }
+            checks.push({ type: 'warn', text: 'Проверка локальная: сайт не переходит по ссылке и не сверяется с базами вредоносных ресурсов.' });
+
+            score = Math.max(0, Math.min(100, Math.round(score)));
+            let level = 'safe';
+            let title = 'Явных признаков риска не найдено';
+            if (score < 50) {
+                level = 'danger';
+                title = 'Обнаружены серьёзные признаки риска';
+            } else if (score < 80) {
+                level = 'warning';
+                title = 'Нужна дополнительная проверка';
+            }
+
+            showResult(level, title, score, checks, meta);
+        }
+
+        function showResult(level, title, score, checks, meta = {}) {
+            const box = document.getElementById('check-result');
+            box.replaceChildren();
+            box.className = 'result-box result-' + level;
+
+            const heading = document.createElement('h3');
+            heading.append(document.createTextNode(title + ' '));
+            const badge = document.createElement('span');
+            badge.className = 'score-badge ' + (level === 'safe' ? 'score-safe' : level === 'warning' ? 'score-warn' : 'score-danger');
+            badge.textContent = score + '/100';
+            badge.title = 'Эвристическая оценка по локальным признакам';
+            heading.appendChild(badge);
+            box.appendChild(heading);
+
+            const metaEntries = Object.entries(meta);
+            if (metaEntries.length) {
+                const metaBox = document.createElement('div');
+                metaBox.className = 'result-meta';
+                metaEntries.forEach(([label, value]) => {
+                    const item = document.createElement('div');
+                    const name = document.createElement('span');
+                    name.textContent = label;
+                    const data = document.createElement('strong');
+                    data.textContent = value;
+                    if (label === 'Домен') {
+                        data.style.color = level === 'danger' ? '#f87171' : level === 'warning' ? '#fbbf24' : '#34d399';
+                        data.style.fontSize = '0.95rem';
+                        data.style.wordBreak = 'break-all';
+                    }
+                    item.append(name, data);
+                    metaBox.appendChild(item);
+                });
+                box.appendChild(metaBox);
+            }
+
+            const list = document.createElement('ul');
+            list.className = 'checks-list';
+            checks.forEach(check => {
+                const item = document.createElement('li');
+                item.className = 'check-' + (check.type === 'ok' ? 'ok' : check.type === 'warn' ? 'warn' : 'bad');
+                item.textContent = check.text;
+                list.appendChild(item);
+            });
+            box.appendChild(list);
+
+            const note = document.createElement('p');
+            note.className = 'result-note';
+            if (level === 'danger') {
+                note.innerHTML = '<strong style="color:#fca5a5;">Рекомендация:</strong> не открывайте ссылку и не вводите данные. Подтвердите источник QR-кода другим способом (официальный сайт, приложение банка и т.д.).';
+            } else if (level === 'warning') {
+                note.innerHTML = '<strong style="color:#fbbf24;">Совет:</strong> перепроверьте домен глазами. Если код с плаката или письма — убедитесь, что это не наклейка и не подделка.';
+            } else {
+                note.textContent = 'Проверка локальная: сайт не переходит по ссылке и не сверяется с онлайн-базами. Отсутствие признаков ≠ гарантия безопасности.';
+            }
+            box.appendChild(note);
+            box.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
